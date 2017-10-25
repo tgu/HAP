@@ -39,6 +39,8 @@ public enum CharacteristicType: String {
     case securitySystemTargetState = "67"
     case lightLevel = "6B"
     case firmwareRevision = "52"
+    case watt = "E863F10D-079E-48FF-8F27-9C2605A29F52"
+    case kiloWattHour = "E863F10C-079E-48FF-8F27-9C2605A29F52"
 }
 
 public enum CharacteristicPermission: String {

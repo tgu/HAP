@@ -70,7 +70,7 @@ public class Device {
         characteristicEventListeners = [:]
 
         for (offset, accessory) in accessories.enumerated() {
-            accessory.aid = offset + 1
+            accessory.aid = offset == 0 ? 1 : offset+100
             accessory.device = self
         }
     }
