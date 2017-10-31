@@ -69,9 +69,23 @@ public class Device {
         self.accessories = accessories
         characteristicEventListeners = [:]
 
-        for (offset, accessory) in accessories.enumerated() {
-            accessory.aid = offset + 1
+        // 2.6.1
+        // Instance IDs are numbers with a range of [1, 18446744073709551615].
+        // These numbers are used to uniquely identify HAP accessory objects
+        // within an HAP accessory server, or uniquely identify services, and
+        // characteristics within an HAP accessory object. The instance ID for
+        // each object must be unique for the lifetime of the server/ client
+        // pairing.
+        var idGenerator = (1...UInt64.max).makeIterator()
+        for accessory in accessories {
             accessory.device = self
+            accessory.aid = idGenerator.next()!
+            for service in accessory.services {
+                service.iid = idGenerator.next()!
+                for characteristic in service.characteristics {
+                    characteristic.iid = idGenerator.next()!
+                }
+            }
         }
     }
 
@@ -113,16 +127,11 @@ public class Device {
 
     func notify(characteristicListeners characteristic: Characteristic, exceptListener except: Server.Connection? = nil) {
         guard let listeners = characteristicEventListeners[Box(characteristic)]?.filter({$0 != except}), listeners.count > 0 else {
-            return logger.info("Value changed, but nobody listening")
+            return logger.debug("Value changed, but nobody listening")
         }
-        guard let event = Event(valueChangedOfCharacteristic: characteristic) else {
-            return logger.error("Could not create value change event")
-        }
-        let data = event.serialized()
-        logger.info("Value changed, notifying \(listeners.count) listener(s)")
-        logger.debug("Listeners: \(listeners), event: \(event)")
+
         for listener in listeners {
-            listener.writeOutOfBand(data)
+            listener.notificationQueue.append(characteristic: characteristic)
         }
     }
 

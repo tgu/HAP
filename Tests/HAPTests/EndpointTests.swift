@@ -24,6 +24,7 @@ class EndpointTests: XCTestCase {
             ("testPutDoubleAndEnumCharacteristics", testPutDoubleAndEnumCharacteristics),
             ("testPutBadCharacteristics", testPutBadCharacteristics),
             ("testGetBadCharacteristics", testGetBadCharacteristics),
+            ("testAuthentication", testAuthentication),
             ("testLinuxTestSuiteIncludesAllTests", testLinuxTestSuiteIncludesAllTests),
         ] + asynchronousTests
     }
@@ -37,7 +38,7 @@ class EndpointTests: XCTestCase {
         guard let accessory = jsonObject["accessories"]?.first else {
             return XCTFail("No accessory")
         }
-        XCTAssertEqual(accessory["aid"] as? Int, lamp.aid)
+        XCTAssertEqual(accessory["aid"] as? UInt64, lamp.aid)
         guard let services = accessory["services"] as? [[String: Any]] else {
             return XCTFail("No services")
         }
@@ -45,13 +46,13 @@ class EndpointTests: XCTestCase {
         guard let metaService = services.first(where: { ($0["type"] as? String) == "3E" }) else {
             return XCTFail("No meta")
         }
-        XCTAssertEqual(metaService["iid"] as? Int, 1)
+        XCTAssertEqual(metaService["iid"] as? UInt64, 2)
         XCTAssertEqual((metaService["characteristics"] as? [Any])?.count, 6)
 
         guard let lampService = services.first(where: { ($0["type"] as? String) == "43" }) else {
             return XCTFail("No lamp")
         }
-        XCTAssertEqual(lampService["iid"] as? Int, 8)
+        XCTAssertEqual(lampService["iid"] as? UInt64, 9)
 
         guard let lampCharacteristics = lampService["characteristics"] as? [[String: Any]] else {
             return XCTFail("No lamp characteristics")
@@ -59,8 +60,7 @@ class EndpointTests: XCTestCase {
         XCTAssertEqual(lampCharacteristics.count, 4)
     }
 
-    /// This test assumes that 1.3 and 1.5 are respectively `manufacturer` and
-    /// `name`. This does not need to be the case.
+
     func testGetCharacteristics() {
         let lamp = Accessory.Lightbulb(info: .init(name: "Night stand left", manufacturer: "Bouke"))
         let device = Device(name: "Test", pin: "123-44-321", storage: MemoryStorage(), accessories: [lamp])
@@ -73,19 +73,17 @@ class EndpointTests: XCTestCase {
             return XCTFail("No characteristics")
         }
 
-        guard let manufacturerCharacteristic = characteristics.first(where: { $0["iid"] as? Int == 3 }) else {
+        guard let manufacturerCharacteristic = characteristics.first(where: { $0["iid"] as? UInt64 == lamp.info.manufacturer.iid }) else {
             return XCTFail("No manufacturer")
         }
         XCTAssertEqual(manufacturerCharacteristic["value"] as? String, "Bouke")
 
-        guard let nameCharacteristic = characteristics.first(where: { $0["iid"] as? Int == 5 }) else {
+        guard let nameCharacteristic = characteristics.first(where: { $0["iid"] as? UInt64 == lamp.info.name.iid }) else {
             return XCTFail("No name")
         }
         XCTAssertEqual(nameCharacteristic["value"] as? String, "Night stand left")
     }
 
-    /// This test assumes that 1.3 and 1.5 are respectively `manufacturer` and
-    /// `name`. This does not need to be the case.
     func testPutBoolAndIntCharacteristics() {
         let lamp = Accessory.Lightbulb(info: .init(name: "Night stand left", manufacturer: "Bouke"))
         let device = Device(name: "Test", pin: "123-44-321", storage: MemoryStorage(), accessories: [lamp])
@@ -390,8 +388,8 @@ class EndpointTests: XCTestCase {
             let jsonObject: [String: [[String: Any]]] = [
                 "characteristics": [
                     [
-                        "aid": 2,
-                        "iid": 4,
+                        "aid": lamp.aid,
+                        "iid": lamp.info.serialNumber.iid,
                     ]
                 ]
             ]
@@ -405,7 +403,7 @@ class EndpointTests: XCTestCase {
             let jsonObject: [String: [[String: Any]]] = [
                 "characteristics": [
                     [
-                        "aid": 2,
+                        "aid": lamp.aid,
                         "value": Double(50)
                     ]
                 ]
@@ -420,7 +418,7 @@ class EndpointTests: XCTestCase {
             let jsonObject: [String: [[String: Any]]] = [
                 "characteristics": [
                     [
-                        "iid": 4,
+                        "iid": lamp.info.serialNumber.iid,
                         "value": Double(50)
                     ]
                 ]
@@ -490,15 +488,15 @@ class EndpointTests: XCTestCase {
                 return XCTFail("No characteristics")
             }
 
-            guard let light = characteristics.first(where: { $0["aid"] as? Int == lightsensor.aid }) else {
+            guard let light = characteristics.first(where: { $0["aid"] as? UInt64 == lightsensor.aid }) else {
                 return XCTFail("Could not get light aid")
             }
 
-            guard let therm = characteristics.first(where: { $0["aid"] as? Int == thermostat.aid }) else {
+            guard let therm = characteristics.first(where: { $0["aid"] as? UInt64 == thermostat.aid }) else {
                 return XCTFail("Could not get therm aid")
             }
 
-            guard let lampa = characteristics.first(where: { $0["aid"] as? Int == lamp.aid }) else {
+            guard let lampa = characteristics.first(where: { $0["aid"] as? UInt64 == lamp.aid }) else {
                 return XCTFail("Could not get lampa aid")
             }
 
@@ -517,11 +515,6 @@ class EndpointTests: XCTestCase {
             XCTAssertEqual(lightVal, lightsensor.lightSensor.currentLight.value)
             XCTAssertEqual(thermVal, thermostat.thermostat.currentTemperature.value)
             XCTAssertEqual(lampaVal, lamp.lightbulb.brightness.value)
-
-            XCTAssertEqual(lightVal, lightsensor.lightSensor.currentLight.value)
-            XCTAssertEqual(thermVal, thermostat.thermostat.currentTemperature.value)
-            XCTAssertEqual(lampaVal, lamp.lightbulb.brightness.value)
-
         }
 
         // trying to read write only access
@@ -531,9 +524,9 @@ class EndpointTests: XCTestCase {
             let response = application(MockConnection(), MockRequest.get(path: "/characteristics?id=\(aid).\(iid)"))
             XCTAssertEqual(response.status, .multiStatus)
             let json = try! JSONSerialization.jsonObject(with: response.body!)  as! [String: [[String: Any]]]
-            XCTAssertEqual(json["characteristics"]![0]["status"]! as! Int,HAPStatusCodes.writeOnly.rawValue)
-            XCTAssertEqual(json["characteristics"]![0]["aid"]! as! Int,aid)
-            XCTAssertEqual(json["characteristics"]![0]["iid"]! as! Int,iid)
+            XCTAssertEqual(json["characteristics"]![0]["status"]! as! Int, HAPStatusCodes.writeOnly.rawValue)
+            XCTAssertEqual(json["characteristics"]![0]["aid"]! as! UInt64, aid)
+            XCTAssertEqual(json["characteristics"]![0]["iid"]! as! UInt64, iid)
         }
 
         // trying to read write only access and one with read access
@@ -590,6 +583,28 @@ class EndpointTests: XCTestCase {
             XCTAssertEqual(light["status"] as? Int,HAPStatusCodes.writeOnly.rawValue)
             XCTAssertEqual(therm["status"] as? Int,HAPStatusCodes.success.rawValue)
             XCTAssertEqual(Double(value: therm["value"] as Any), thermostat.thermostat.currentTemperature.value)
+        }
+    }
+
+    func testAuthentication() {
+        let lamp = Accessory.Lightbulb(info: .init(name: "Night stand left"))
+        let device = Device(name: "Test", pin: "123-44-321", storage: MemoryStorage(), accessories: [lamp])
+        let application = root(device: device)
+        do {
+            let response = application(MockConnection(), MockRequest.get(path: "/identify"))
+            XCTAssertEqual(response.status, .forbidden)
+        }
+        do {
+            let response = application(MockConnection(), MockRequest.get(path: "/accessories"))
+            XCTAssertEqual(response.status, .forbidden)
+        }
+        do {
+            let response = application(MockConnection(), MockRequest.get(path: "/characteristics"))
+            XCTAssertEqual(response.status, .forbidden)
+        }
+        do {
+            let response = application(MockConnection(), MockRequest.get(path: "/pairings"))
+            XCTAssertEqual(response.status, .forbidden)
         }
     }
 
