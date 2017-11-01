@@ -9,7 +9,7 @@ import func Evergreen.getLogger
 #endif
 
 fileprivate let logger = getLogger("hap.http")
-
+private let minimalTimeBetweenNotifications: DispatchTimeInterval = .seconds(1)
 
 public class Server: NSObject, NetServiceDelegate {
 
@@ -19,13 +19,13 @@ public class Server: NSObject, NetServiceDelegate {
         fileprivate var queue = [Characteristic]()
         weak var listener : Connection?
         var nextAllowableNotificationTime = DispatchTime.now()
-        
+
         func addCharacteristic(_ characteristic: Characteristic) {
             concurrentQueue.async(flags: .barrier) {
                 self.queue.append(characteristic)
             }
         }
-        
+
         var queueCount : Int {
             var count = 0
             concurrentQueue.sync {
@@ -33,12 +33,12 @@ public class Server: NSObject, NetServiceDelegate {
             }
             return count
         }
-        
+
         func append(characteristic: Characteristic) {
             DispatchQueue.main.async {
                 self.addCharacteristic(characteristic)
                 if self.queueCount == 1 {
-                    
+
                     /* HAP Specification 5.8 (excerpts)
                      Network-based notifications must be coalesced
                      by the accessory using a delay of no less than 1 second.
@@ -46,18 +46,18 @@ public class Server: NSObject, NetServiceDelegate {
                      in the user being notified of a misbehaving
                      accessory and/or termination of the pairing relationship.
                      */
-                    
+
                     self.nextAllowableNotificationTime = max(self.nextAllowableNotificationTime,DispatchTime.now())
                     var sendCount = 0
-                    
+
                     // cannot use DispatchQueue.main since we are using usleep
-                    
+
                     self.serverQueue.asyncAfter(deadline: self.nextAllowableNotificationTime ) {
                         while DispatchTime.now() < self.nextAllowableNotificationTime+1 && self.queueCount > sendCount {
                             sendCount = self.queueCount
                             usleep(1_000)  // 1 ms wait
                         }
-                        
+
                         DispatchQueue.main.async {
                             defer { self.queue.removeAll() }
                             guard let event = Event(valueChangedOfCharacteristics: self.queue) else {
@@ -137,6 +137,7 @@ public class Server: NSObject, NetServiceDelegate {
                 self.socket = nil
             }
         }
+
         func writeOutOfBand(_ data: Data) {
             // TODO: resolve race conditions with the read/write loop
             guard let socket = socket else {
@@ -153,9 +154,13 @@ public class Server: NSObject, NetServiceDelegate {
                 socket.close()
             }
         }
+
+        var isAuthenticated: Bool {
+            return cryptographer != nil
+        }
     }
-    
-    
+
+
     let service: NetService
     let socket: Socket
     let queue = DispatchQueue(label: "hap.socket-listener", qos: .utility, attributes: [.concurrent])
@@ -178,11 +183,11 @@ public class Server: NSObject, NetServiceDelegate {
         super.init()
         service.delegate = self
     }
-    
+
     public func start() {
         service.publish()
         logger.info("Listening on port \(self.socket.listeningPort)")
-        
+
         queue.async {
             while self.socket.isListening {
                 do {
@@ -198,15 +203,15 @@ public class Server: NSObject, NetServiceDelegate {
             }
             self.stop()
         }
-        
+
     }
-    
+
     public func stop() {
         service.stop()
         socket.close()
     }
-    
-    
+
+
     #if os(macOS)
         // MARK: Using Network Services
         public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
@@ -215,16 +220,16 @@ public class Server: NSObject, NetServiceDelegate {
     #elseif os(Linux)
         // MARK: Using Network Services
         public func netServiceWillPublish(_ sender: NetService) { }
-        
+
         public func netServiceDidPublish(_ sender: NetService) { }
-        
+
         public func netService(_ sender: NetService,
                                didNotPublish error: Swift.Error) {
             logger.error("didNotPublish: \(error)")
         }
-        
+
         public func netServiceDidStop(_ sender: NetService) { }
-        
+
         // MARK: Accepting Connections
         public func netService(_ sender: NetService,
                                didAcceptConnectionWith socket: Socket) {  }

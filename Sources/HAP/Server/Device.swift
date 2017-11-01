@@ -20,7 +20,7 @@ struct Box<T: Any>: Hashable, Equatable {
     init(_ value: T) {
         self.value = value
     }
-    
+
     var object: AnyObject {
         #if os(macOS)
             return value as AnyObject
@@ -69,9 +69,21 @@ public class Device {
         self.accessories = accessories
         characteristicEventListeners = [:]
 
-        for (offset, accessory) in accessories.enumerated() {
-            accessory.aid = offset == 0 ? 1 : offset+100
+        // 2.6.1.1 Accessory Instance IDs
+        // Accessory instance IDs, "aid", are assigned from the same number
+        // pool that is global across entire HAP Accessory Server. For example,
+        // if the first Accessory object has an instance ID of "1" then no
+        // other Accessory object can have an instance ID of "1" within the
+        // Accessory Server.
+        //
+        // TODO: SwiftFoundation in Swift 4.0 cannot encode/decode UInt64,
+        // which is the data-type we wanted to use here. We can change it back
+        // to UInt64 once the following commit has made it into a release:
+        // https://github.com/apple/swift-corelibs-foundation/commit/64b67c91479390776c43a96bd31e4e85f106d5e1
+        var idGenerator = (1...Int.max).makeIterator()
+        for accessory in accessories {
             accessory.device = self
+            accessory.aid = idGenerator.next()!
         }
     }
 
@@ -113,7 +125,7 @@ public class Device {
 
     func notify(characteristicListeners characteristic: Characteristic, exceptListener except: Server.Connection? = nil) {
         guard let listeners = characteristicEventListeners[Box(characteristic)]?.filter({$0 != except}), listeners.count > 0 else {
-            return logger.info("Value changed, but nobody listening")
+            return logger.debug("Value changed, but nobody listening")
         }
 
         for listener in listeners {

@@ -47,7 +47,7 @@ public enum CharacteristicPermission: String {
     case read = "pr"
     case write = "pw"
     case events = "ev"
-    
+
     static let ReadWrite: [CharacteristicPermission] = [.read, .write, .events]
 }
 

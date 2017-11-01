@@ -22,14 +22,14 @@ struct Event {
             let statusCode = scanner.scanUpTo(" ").flatMap({ Int($0) }),
             let status = Response.Status(rawValue: statusCode),
             let _ = scanner.scan(space),
-            let statusText = scanner.scanUpTo("\r\n"),
+            let _ = scanner.scanUpTo("\r\n"),
             let _ = scanner.scan(newline)
             else {
                 return nil
         }
         self.status = status
         while true {
-            if let _ = scanner.scan(newline) { 
+            if let _ = scanner.scan(newline) {
                 break
             }
             guard
@@ -50,19 +50,22 @@ struct Event {
         let headers = self.headers.map({ "\($0): \($1)\r\n" }).joined(separator: "")
         return "EVENT/1.0 \(status.rawValue) \(status.description)\r\n\(headers)\r\n".data(using: .utf8)! + body
     }
+}
 
-    init?(valueChangedOfCharacteristics characteristics: [Characteristic]) {
+extension Event {
+    enum Error: Swift.Error {
+        case characteristicWithoutAccessory
+    }
+
+    init(valueChangedOfCharacteristics characteristics: [Characteristic]) throws {
         var payload = [[String: Any]]()
         for c in characteristics {
             guard let aid = c.service?.accessory?.aid else {
-                break
+                throw Error.characteristicWithoutAccessory
             }
             payload.append(["aid": aid, "iid": c.iid, "value": c.getValue() ?? NSNull()])
         }
-        guard payload.count > 0 else { return nil }
-
         let serialized = ["characteristics": payload]
-
         guard let body = try? JSONSerialization.data(withJSONObject: serialized, options: []) else {
             abort()
         }
