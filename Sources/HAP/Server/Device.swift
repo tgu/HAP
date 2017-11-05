@@ -84,6 +84,9 @@ public class Device {
         for accessory in accessories {
             accessory.device = self
             accessory.aid = idGenerator.next()!
+            if accessory.aid > 1 {
+                accessory.aid = accessory.aid + 100
+            }
         }
     }
 

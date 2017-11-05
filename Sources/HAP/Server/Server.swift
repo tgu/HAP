@@ -60,7 +60,7 @@ public class Server: NSObject, NetServiceDelegate {
 
                         DispatchQueue.main.async {
                             defer { self.queue.removeAll() }
-                            guard let event = Event(valueChangedOfCharacteristics: self.queue) else {
+                            guard let event = try? Event(valueChangedOfCharacteristics: self.queue) else {
                                 return logger.error("Could not create value change event")
                             }
                             let data = event.serialized()
