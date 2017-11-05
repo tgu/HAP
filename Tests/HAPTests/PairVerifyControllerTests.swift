@@ -5,15 +5,15 @@ import HKDF
 import XCTest
 
 class PairVerifyControllerTests: XCTestCase {
-    static var allTests : [(String, (PairVerifyControllerTests) -> () throws -> Void)] {
+    static var allTests: [(String, (PairVerifyControllerTests) -> () throws -> Void)] {
         return [
             ("test", test),
-            ("testLinuxTestSuiteIncludesAllTests", testLinuxTestSuiteIncludesAllTests),
+            ("testLinuxTestSuiteIncludesAllTests", testLinuxTestSuiteIncludesAllTests)
         ]
     }
-    
+
     func test() {
-        let device = Device(name: "Test", pin: "", storage: MemoryStorage(), accessories: [])
+        let device = Device(bridgeInfo: .init(name: "Test"), setupCode: "123-44-321", storage: MemoryStorage(), accessories: [])
         let username = "hubba hubba".data(using: .utf8)!
         let keys = Ed25519.generateSignKeypair() // these are the client's keys
         device.pairings[username] = keys.publicKey
@@ -24,11 +24,11 @@ class PairVerifyControllerTests: XCTestCase {
         let serverPublicKey: Data
         let encryptionKey: Data
         let session: PairVerifyController.Session
-        
+
         do {
             // Client -> Server: public key
             let request: PairTagTLV8 = [
-                PairTag.sequence: Data(bytes: [PairVerifyStep.startRequest.rawValue]),
+                PairTag.state: Data(bytes: [PairVerifyStep.startRequest.rawValue]),
                 PairTag.publicKey: clientPublicKey
             ]
             let resultOuter: PairTagTLV8
@@ -40,8 +40,7 @@ class PairVerifyControllerTests: XCTestCase {
 
             // Server -> Client: encrypted(username, signature), public key
             guard let serverPublicKey_ = resultOuter[.publicKey],
-                let encryptedData = resultOuter[.encryptedData] else
-            {
+                let encryptedData = resultOuter[.encryptedData] else {
                 return XCTFail("Response is incomplete")
             }
             guard let sharedSecret = crypto(crypto_scalarmult, Data(count: Int(crypto_scalarmult_BYTES)), clientSecretKey, serverPublicKey_) else {
@@ -55,14 +54,12 @@ class PairVerifyControllerTests: XCTestCase {
                                                 count: 32)
             guard let plainText = try? ChaCha20Poly1305.decrypt(cipher: encryptedData,
                                                           nonce: "PV-Msg02".data(using: .utf8)!,
-                                                          key: encryptionKey_) else
-            {
+                                                          key: encryptionKey_) else {
                 return XCTFail("Couldn't decrypt response")
             }
             guard let resultInner: PairTagTLV8 = try? decode(plainText),
-                let username = resultInner[.username],
-                let signature = resultInner[.signature] else
-            {
+                let username = resultInner[.identifier],
+                let signature = resultInner[.signature] else {
                 return XCTFail("Couldn't decode response")
             }
             let material = serverPublicKey_ + username + clientPublicKey
@@ -75,7 +72,7 @@ class PairVerifyControllerTests: XCTestCase {
             serverPublicKey = serverPublicKey_
             encryptionKey = encryptionKey_
         }
-    
+
         do {
             // Client -> Server: encrypted(username, signature)
             let material = clientPublicKey + username + serverPublicKey
@@ -83,13 +80,12 @@ class PairVerifyControllerTests: XCTestCase {
                 return XCTFail("Couldn't sign")
             }
             let requestInner: PairTagTLV8 = [
-                .username: username,
+                .identifier: username,
                 .signature: signature
             ]
             guard let cipher = try? ChaCha20Poly1305.encrypt(message: encode(requestInner),
                                                              nonce: "PV-Msg03".data(using: .utf8)!,
-                                                             key: encryptionKey) else
-            {
+                                                             key: encryptionKey) else {
                 return XCTFail("Couldn't encode")
             }
             let resultOuter: PairTagTLV8 = [
