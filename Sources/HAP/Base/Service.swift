@@ -24,19 +24,30 @@ public enum ServiceType: String {
 open class Service {
     weak var accessory: Accessory?
 
-    var iid: Int
+    internal var iid: Int = 0
     public let type: ServiceType
     let characteristics: [Characteristic]
 
-    init(iid: Int = 0, type: ServiceType, characteristics: [Characteristic]) {
-        self.iid = iid
+    init(type: ServiceType, characteristics: [Characteristic]) {
         self.type = type
         self.characteristics = characteristics
+
+        // 5.3.2 Service Objects
+        // Array of Characteristic objects. Must not be empty. The maximum
+        // number of characteristics must not exceed 100, and each
+        // characteristic in the array must have a unique type.
+        precondition((1...100).contains(characteristics.count),
+                     "Number of characteristics must be 1...100")
+        precondition(
+            Dictionary(grouping: characteristics, by: { $0.type })
+                .filter({ $0.value.count > 1 })
+                .isEmpty,
+            "Service's characteristics must have a unique type")
     }
 }
 
 extension Service: JSONSerializable {
-    public func serialized() -> [String : JSONValueType] {
+    public func serialized() -> [String: JSONValueType] {
         return [
             "iid": iid,
             "type": type.rawValue,

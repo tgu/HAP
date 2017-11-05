@@ -77,8 +77,8 @@ public class Server: NSObject, NetServiceDelegate {
     public class Connection: NSObject {
         var context = [String: Any]()
         var socket: Socket?
-        var cryptographer: Cryptographer? = nil
-        var notificationQueue : NotificationQueue
+        var cryptographer: Cryptographer?
+        var notificationQueue: NotificationQueue
 
         override init() {
             notificationQueue = NotificationQueue()
@@ -160,7 +160,6 @@ public class Server: NSObject, NetServiceDelegate {
         }
     }
 
-
     let service: NetService
     let socket: Socket
     let queue = DispatchQueue(label: "hap.socket-listener", qos: .utility, attributes: [.concurrent])
@@ -211,10 +210,9 @@ public class Server: NSObject, NetServiceDelegate {
         socket.close()
     }
 
-
     #if os(macOS)
         // MARK: Using Network Services
-        public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
+        public func netService(_ sender: NetService, didNotPublish errorDict: [String: NSNumber]) {
             logger.error("didNotPublish: \(errorDict)")
         }
     #elseif os(Linux)

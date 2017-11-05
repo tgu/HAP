@@ -16,7 +16,7 @@ func pairSetup(device: Device) -> Application {
 
     let username = "Pair-Setup"
     let (salt, verificationKey) = createSaltedVerificationKey(username: username,
-                                                              password: device.pin,
+                                                              password: device.setupCode,
                                                               group: group,
                                                               algorithm: algorithm)
     let controller = PairSetupController(device: device)
@@ -33,13 +33,13 @@ func pairSetup(device: Device) -> Application {
         }
         return session
     }
-    
+
     return { (connection, request) in
         var body = Data()
         guard let _ = try? request.readAllData(into: &body), let data: PairTagTLV8 = try? decode(body) else {
             return .badRequest
         }
-        guard let sequence = data[.sequence]?.first.flatMap({ PairSetupStep(rawValue: $0) }) else {
+        guard let sequence = data[.state]?.first.flatMap({ PairSetupStep(rawValue: $0) }) else {
             return .badRequest
         }
         let response: PairTagTLV8?
