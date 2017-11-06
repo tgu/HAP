@@ -51,7 +51,6 @@ public class Device {
     internal var characteristicEventListeners: [Box<Characteristic>: WeakObjectSet<Server.Connection>]
     public var onIdentify: [(Accessory?) -> Void] = []
 
-    /// 2.5.3.2 Bridges
     /// A bridge is a special type of HAP accessory server that bridges HomeKit
     /// Accessory Protocol and different RF/transport protocols, such as ZigBee
     /// or Z-Wave. A bridge must expose all the user-addressable functionality
@@ -94,6 +93,15 @@ public class Device {
                   accessories: [bridge] + accessories)
     }
 
+    /// An HAP accessory object represents a physical accessory on an HAP
+    /// accessory server. For example, a thermostat would expose a single HAP
+    /// accessory object that represents the user-addressable functionality of
+    /// the thermostat.
+    ///
+    /// - Parameters:
+    ///   - setupCode: the code to pair this device, must be in the format XXX-XX-XXX
+    ///   - storage: persistence interface for storing pairings, secrets
+    ///   - accessory: accessory to publish
     convenience public init(
         setupCode: String,
         storage: Storage,
@@ -207,14 +215,18 @@ public class Device {
             // update. This must have a range of 1-4294967295 and wrap to 1
             // when it overflows. This value must persist across reboots, power
             // cycles, etc.
-            "c#": "3",
+            "c#": "1",
 
             // Feature flags (e.g. "0x3" for bits 0 and 1). Required if
             // non-zero. See table:
             // 0x01         1   Supports HAP Pairing. This flag is required for
             //                  all HomeKit accessories.
             // 0x02-0x80    2-8 Reserved.
-            "ff": "0x01",
+            //
+            // NOTE: On non-certified HAP devices (like this package), we can't
+            // set this to 0x01 as clients will send parameters we don't
+            // understand.
+            "ff": "0",
 
             // Device ID (Device ID (page 36)) of the accessory. The Device ID
             // must be formatted as "XX:XX:XX:XX:XX:XX", where "XX" is a
@@ -245,7 +257,7 @@ public class Device {
             // 0x02-0x80    2   Accessory has not been configured to join a Wi-Fi network.
             // 0x04         3   A problem has been detected on the accessory.
             // 0x08-0x80    4-8 Reserved.
-            "sf": (isPaired ? "0" : "0x01"),
+            "sf": (isPaired ? "0" : "1"),
 
             // Accessory Category Identifier. Required. Indicates the category
             // that best describes the primary function of the accessory. This
