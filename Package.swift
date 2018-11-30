@@ -30,6 +30,6 @@ let package = Package(
 )
 
 #if os(Linux)
-    package.dependencies.append(.package(url: "https://github.com/Bouke/NetService.git", from: "0.3.0"))
+    package.dependencies.append(.package(url: "https://github.com/Bouke/NetService.git", from: "0.4.1"))
     package.targets.first(where: { $0.name == "HAP" })!.dependencies.append("NetService")
 #endif
