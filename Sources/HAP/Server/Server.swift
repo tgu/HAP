@@ -75,23 +75,15 @@ public class Server: NSObject, NetServiceDelegate {
         service.publish(options: NetService.Options(rawValue: 0))
     }
 
-    public func wait() {
-        try! channel.closeFuture.wait()
-//        try! channel6.closeFuture.wait()
-
-        defer {
-            try! group.syncShutdownGracefully()
-        }
+    public func stop() {
+        channel.close(promise: nil)
+        try! group.syncShutdownGracefully()
     }
 
     /// Publish the Accessory configuration on the Bonjour service
     func updateDiscoveryRecord() {
-        #if os(macOS)
-            let record = device.config.dictionary(key: { $0.key }, value: { $0.value.data(using: .utf8)! })
-            service.setTXTRecord(NetService.data(fromTXTRecord: record))
-        #elseif os(Linux)
-            service.setTXTRecord(device.config)
-        #endif
+        let record = device.config.dictionary(key: { $0.key }, value: { $0.value.data(using: .utf8)! })
+        service.setTXTRecord(NetService.data(fromTXTRecord: record))
     }
 
     public func netServiceDidPublish(_ sender: NetService) {
@@ -115,7 +107,7 @@ public class Server: NSObject, NetServiceDelegate {
     #elseif os(Linux)
         // MARK: Using Network Services
         public func netService(_ sender: NetService,
-                               didNotPublish error: Swift.Error) {
+                               didNotPublish error: NetServiceError) {
             logger.error("didNotPublish: \(error)")
         }
     #endif
