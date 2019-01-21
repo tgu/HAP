@@ -14,6 +14,7 @@ func pairVerify(device: Device) -> Responder {
 
     // TODO: this memory is not freed, not thread-safe either
     var sessions: [ObjectIdentifier: PairVerifyController.Session] = [:]
+    let sessionQueue = DispatchQueue(label: "SessionQueue", attributes: .concurrent)
 
     return { context, request in
         guard
@@ -31,14 +32,19 @@ func pairVerify(device: Device) -> Responder {
 
             case .startRequest:
                 let (response, session) = try controller.startRequest(data)
-                sessions[ObjectIdentifier(context.channel)] = session
+                sessionQueue.async(flags: .barrier) {
+                    sessions[ObjectIdentifier(context.channel)] = session
+                }
                 return HTTPResponse(tags: response)
 
             case .finishRequest:
                 defer {
-                    sessions[ObjectIdentifier(context.channel)] = nil
+                    sessionQueue.async(flags: .barrier) {
+                        sessions[ObjectIdentifier(context.channel)] = nil
+                    }
                 }
-                guard let session = sessions[ObjectIdentifier(context.channel)] else {
+
+                guard let session = sessionQueue.sync(execute: { sessions[ObjectIdentifier(context.channel)] } ) else {
                     throw Error.noSession
                 }
 

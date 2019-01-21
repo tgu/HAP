@@ -42,6 +42,7 @@ public class Device {
 
     // Mapping of Characteristic -> [Channel]
     private(set) var characteristicSubscribers: [ObjectIdentifier: Set<ObjectIdentifier>] = [:]
+    private let subscriberQueue = DispatchQueue(label: "subscriberQueue", attributes: .concurrent)
 
     private(set) var configuration: Configuration
 
@@ -394,10 +395,12 @@ public class Device {
 
     // Add an object which would be notified of changes to Characterisics
     func addSubscriber(_ channel: Channel, forCharacteristic characteristic: Characteristic) {
-        if !characteristicSubscribers.keys.contains(ObjectIdentifier(characteristic)) {
-            characteristicSubscribers[ObjectIdentifier(characteristic)] = []
+        subscriberQueue.async(flags: .barrier) {
+            if !self.characteristicSubscribers.keys.contains(ObjectIdentifier(characteristic)) {
+                self.characteristicSubscribers[ObjectIdentifier(characteristic)] = []
+            }
+            self.characteristicSubscribers[ObjectIdentifier(characteristic)]!.insert(ObjectIdentifier(channel))
         }
-        characteristicSubscribers[ObjectIdentifier(characteristic)]!.insert(ObjectIdentifier(channel))
 
         if let service = characteristic.service, let accessory = service.accessory {
             delegate?.characteristicListenerDidSubscribe(accessory,
@@ -408,10 +411,15 @@ public class Device {
 
     @discardableResult
     func removeSubscriber(_ channel: Channel, forCharacteristic characteristic: Characteristic) -> Channel? {
-        guard characteristicSubscribers.keys.contains(ObjectIdentifier(characteristic)) else {
+        let hasKey = subscriberQueue.sync {
+            characteristicSubscribers.keys.contains(ObjectIdentifier(characteristic))
+        }
+        guard hasKey else {
             return nil
         }
-        let subscriber = characteristicSubscribers[ObjectIdentifier(characteristic)]!.remove(ObjectIdentifier(channel))
+        let subscriber = subscriberQueue.sync {
+            characteristicSubscribers[ObjectIdentifier(characteristic)]!.remove(ObjectIdentifier(channel))
+        }
         if subscriber != nil, let service = characteristic.service, let accessory = service.accessory {
             delegate?.characteristicListenerDidUnsubscribe(accessory,
                                                            service: service,
@@ -422,18 +430,21 @@ public class Device {
 
     /// Remove a listener for any associated characteristics
     func removeSubscriberForAllCharacteristics(_ channel: Channel) {
-        for characteristic in characteristicSubscribers.keys {
-            characteristicSubscribers[characteristic]!.remove(ObjectIdentifier(channel))
+        subscriberQueue.async(flags: .barrier) {
+            for characteristic in self.characteristicSubscribers.keys {
+                self.characteristicSubscribers[characteristic]!.remove(ObjectIdentifier(channel))
+            }
         }
         // TODO: call delegate, however we don't have the characteristic...
     }
 
     /// Notifies listeners (controllers) of changes to a characteristic's value.
     func fireCharacteristicChangeEvent(_ characteristic: Characteristic) {
-        guard let subscribers = characteristicSubscribers[ObjectIdentifier(characteristic)],
-            !subscribers.isEmpty
-            else {
-                return
+        let subs = subscriberQueue.sync {
+            characteristicSubscribers[ObjectIdentifier(characteristic)]
+        }
+        guard let subscribers = subs, !subscribers.isEmpty else {
+            return
         }
 
         for subscriber in subscribers {
@@ -442,10 +453,11 @@ public class Device {
     }
 
     func fireCharacteristicChangeEvent(_ characteristic: Characteristic, source: Channel) {
-        guard let subscribers = characteristicSubscribers[ObjectIdentifier(characteristic)]?.filter({ $0 != ObjectIdentifier(source) }),
-            !subscribers.isEmpty
-            else {
-                return
+        let subs = subscriberQueue.sync {
+            characteristicSubscribers[ObjectIdentifier(characteristic)]?.filter({ $0 != ObjectIdentifier(source) })
+        }
+        guard let subscribers = subs, !subscribers.isEmpty else {
+            return
         }
 
         for subscriber in subscribers {
