@@ -238,13 +238,33 @@ public class Device {
     /// - write the configuration to storage
     /// - notify interested parties of the change
     func updatedConfiguration() {
-        configuration.number = configuration.number &+ 1
+        var newStableHash = generateStableHash()
+        if newStableHash != configuration.stableHash {
+            configuration.number = configuration.number &+ 1
+            configuration.stableHash = newStableHash
+        }
         if configuration.number < 1 {
             configuration.number = 1
         }
 
         persistConfig()
         notifyConfigurationChange()
+    }
+
+    /// Generate uniqueness hash for device configuration, used to determine
+    /// if the configuration number should be updated.
+    func generateStableHash() -> Int {
+        var hash = 0
+        for accessory in accessories {
+            hash ^= 17 &* accessory.aid
+            for service in accessory.services {
+                hash ^= 19 &* service.iid
+                for characteristic in service.characteristics {
+                    hash ^= 23 &* characteristic.iid
+                }
+            }
+        }
+        return hash
     }
 
     /// Notify the server that the config record has changed
@@ -317,6 +337,16 @@ public class Device {
         return pairingState == .paired
     }
 
+    // Remove all the pairings made with this Device
+    // Can be used in the event of a stale configuration file
+    public func removeAllPairings() {
+        logger.debug("Removing all pairings")
+        let allPairingIdentifiers = configuration.pairings.keys
+        for identifier in allPairingIdentifiers {
+            remove(pairingWithIdentifier: identifier)
+        }
+    }
+
     // Add the pairing to the internal DB and notify the change
     // to update the Bonjour broadcast
     func add(pairing: Pairing) {
@@ -331,17 +361,28 @@ public class Device {
     // Remove the pairing in the internal DB and notify the change
     // to update the Bonjour broadcast
     func remove(pairingWithIdentifier identifier: PairingIdentifier) {
-        configuration.pairings[identifier] = nil
-        // If the last remaining admin controller pairing is removed, all
-        // pairings on the accessory must be removed.
-        if configuration.pairings.values.first(where: { $0.role == .admin }) == nil {
-            logger.info("Last remaining admin controller pairing is removed, removing all pairings")
-            configuration.pairings = [:]
-        }
-        persistConfig()
-        if pairingState == .paired {
-            // swiftlint:disable:next force_try
-            try! changePairingState(.notPaired)
+        if let pairing = configuration.pairings[identifier] {
+
+            server?.removeConnectionsFor(pairing: pairing)
+            configuration.pairings[identifier] = nil
+
+            // If the last remaining admin controller pairing is removed, all
+            // pairings on the accessory must be removed.
+            if configuration.pairings.values.first(where: { $0.role == .admin }) == nil {
+                logger.info("Last remaining admin controller pairing is removed, removing all pairings")
+                let allPairingIdentifiers = configuration.pairings.keys
+                for identifier in allPairingIdentifiers {
+                    server?.removeConnectionsFor(pairing: pairing)
+                    configuration.pairings[identifier] = nil
+                }
+            }
+
+            persistConfig()
+            if pairingState == .paired && configuration.pairings.isEmpty {
+                // swiftlint:disable:next force_try
+                try! changePairingState(.notPaired)
+            }
+
         }
     }
 
@@ -392,6 +433,14 @@ public class Device {
 
         for listener in listeners {
             listener.notificationQueue.append(characteristic: characteristic)
+        }
+    }
+
+    /// Remove a listener for any associated characteristics
+    func remove(listener connection: Server.Connection) {
+        for (boxedCharacteristic, _) in characteristicEventListeners {
+            let characteristic = boxedCharacteristic.value
+            remove(characteristic: characteristic, listener: connection)
         }
     }
 

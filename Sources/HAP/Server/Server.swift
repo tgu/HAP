@@ -17,10 +17,28 @@ public class Server: NSObject, NetServiceDelegate {
     let service: NetService
 
     let listenSocket: Socket
-    let socketLockQueue = DispatchQueue(label: "hap.socketLockQueue")
+    let connectionsLockQueue = DispatchQueue(label: "hap.connectionsLockQueue")
 
-    var continueRunning = true
-    var connectedSockets = [Int32: Socket]()
+    let continueRunningLock = DispatchSemaphore(value: 1)
+
+    // swiftlint:disable:next identifier_name
+    var _continueRunning = false
+    var continueRunning: Bool {
+        get {
+            continueRunningLock.wait()
+            defer {
+                continueRunningLock.signal()
+            }
+            return _continueRunning
+        }
+        set {
+            continueRunningLock.wait()
+            _continueRunning = newValue
+            continueRunningLock.signal()
+        }
+
+    }
+    var connections = [Int32: Connection]()
 
     public init(device: Device, port: Int = 0) throws {
         precondition(device.server == nil, "Device already assigned to other Server instance")
@@ -42,15 +60,14 @@ public class Server: NSObject, NetServiceDelegate {
 
     /// Publish the Accessory configuration on the Bonjour service
     func updateDiscoveryRecord() {
-        #if os(macOS)
-            let record = device.config.dictionary(key: { $0.key }, value: { $0.value.data(using: .utf8)! })
-            service.setTXTRecord(NetService.data(fromTXTRecord: record))
-        #elseif os(Linux)
-            service.setTXTRecord(device.config)
-        #endif
+        let record = device.config.dictionary(key: { $0.key }, value: { $0.value.data(using: .utf8)! })
+        service.setTXTRecord(NetService.data(fromTXTRecord: record))
     }
 
     public func start() {
+        if #available(OSX 10.12, *) {
+            dispatchPrecondition(condition: .onQueue(.main))
+        }
         // TODO: make sure can only be started if not started
 
         continueRunning = true
@@ -62,42 +79,73 @@ public class Server: NSObject, NetServiceDelegate {
             do {
                 repeat {
                     let newSocket = try self.listenSocket.acceptClientConnection()
-                    logger.info("Accepted connection from \(newSocket.remoteHostname)")
+                    DispatchQueue.main.async {
+                        logger.info("Accepted connection from \(newSocket.remoteHostname):\(newSocket.remotePort)")
+                    }
                     self.addNewConnection(socket: newSocket)
                 } while self.continueRunning
             } catch {
                 logger.error("Could not accept connections for listening socket", error: error)
             }
-            self.stop()
+            self.tearDownConnections()
+            self.listenSocket.close()
         }
+    }
+
+    func tearDownConnections() {
+        service.stop()
+        continueRunning = false
+
+        connectionsLockQueue.sync { [unowned self] in
+            for (_, connection) in self.connections {
+                connection.tearDown()
+            }
+            self.connections = [:]
+        }
+
     }
 
     public func stop() {
-        service.stop()
-        continueRunning = false
-        listenSocket.close()
-
-        socketLockQueue.sync { [unowned self] in
-            for socket in self.connectedSockets {
-                socket.value.close()
-            }
-            self.connectedSockets = [:]
+        if #available(OSX 10.12, *) {
+            dispatchPrecondition(condition: .onQueue(.main))
         }
+        continueRunning = false
+
+        // Ideally we would call `.close()` on all open sockets. However
+        // BlueSocket doesn't like us doing that from another thread than
+        // the one that's currently listening. As a workaround, we'll
+        // force close the file descriptor instead.
+
+        Socket.forceClose(socketfd: listenSocket.socketfd)
     }
 
     func addNewConnection(socket: Socket) {
-        socketLockQueue.sync { [unowned self, socket] in
-            self.connectedSockets[socket.socketfd] = socket
-        }
 
         let queue = DispatchQueue.global(qos: .userInteractive)
 
         // Create the run loop work item and dispatch to the default priority global queue...
         queue.async { [unowned self, socket] in
-            Connection().listen(socket: socket, application: self.application)
+            let socketfd = socket.socketfd
+            let connection = Connection(server: self)
 
-            self.socketLockQueue.sync { [unowned self, socket] in
-                self.connectedSockets[socket.socketfd] = nil
+            self.connectionsLockQueue.sync { [unowned self, socket, connection] in
+                self.connections[socket.socketfd] = connection
+            }
+
+            connection.listen(socket: socket, application: self.application)
+
+            self.connectionsLockQueue.sync { [unowned self, socketfd] in
+                self.connections[socketfd] = nil
+            }
+        }
+    }
+
+    func removeConnectionsFor(pairing: Pairing) {
+        connectionsLockQueue.sync { [unowned self] in
+            for (socketfd, connection) in self.connections
+            where connection.pairing?.identifier == pairing.identifier {
+                    connection.tearDown()
+                    self.connections[socketfd] = nil
             }
         }
     }
