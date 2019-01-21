@@ -66,7 +66,7 @@ open class Accessory: JSONSerializable {
                     .first(where: { $0.type == .reachable }) else {
                         return
             }
-            try? characteristic.setValue(self.reachable, fromConnection: nil)
+            try? characteristic.setValue(self.reachable, fromChannel: nil)
         }
     }
 
@@ -125,9 +125,9 @@ open class Accessory: JSONSerializable {
 
     /// Characteristic's value was changed by controller. Used for bubbling up
     /// to the device, which will notify the delegate.
-    func characteristic<T>(_ characteristic: GenericCharacteristic<T>,
-                           ofService service: Service,
-                           didChangeValue newValue: T?) {
+    open func characteristic<T>(_ characteristic: GenericCharacteristic<T>,
+                                ofService service: Service,
+                                didChangeValue newValue: T?) {
         device?.characteristic(characteristic, ofService: service, ofAccessory: self, didChangeValue: newValue)
     }
 

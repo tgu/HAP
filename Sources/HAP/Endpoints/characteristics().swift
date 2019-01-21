@@ -1,16 +1,19 @@
 import Foundation
 import HKDF
 import func Evergreen.getLogger
+import HTTP
 
 fileprivate let logger = getLogger("hap.endpoints.characteristics")
 
 // swiftlint:disable:next cyclomatic_complexity
-func characteristics(device: Device) -> Application {
-    return { connection, request in
+func characteristics(device: Device) -> Responder {
+    return { context, request in
+        let channel = context.channel
+
         switch request.method {
-        case "GET":
+        case .GET:
             guard
-                let queryItems = request.urlComponents.queryItems,
+                let queryItems = URLComponents(url: request.url, resolvingAgainstBaseURL: true)?.queryItems,
                 let query = try? Protocol.GetQuery(queryItems: queryItems)
             else {
                 return .badRequest
@@ -86,7 +89,7 @@ func characteristics(device: Device) -> Application {
              a non-zero "status" entry and must not contain a "value" entry.
              */
 
-            var responseStatus: Response.Status = .ok
+            var responseStatus: HTTPResponseStatus = .ok
             if !responses.filter({ $0.status != nil }).isEmpty {
                 for index in responses.indices where responses[index].status == nil {
                     responses[index].status = .success
@@ -96,22 +99,25 @@ func characteristics(device: Device) -> Application {
 
             do {
                 let json = try JSONEncoder().encode(Protocol.CharacteristicContainer(characteristics: responses))
-                return Response(status: responseStatus, data: json, mimeType: "application/hap+json")
+                return HTTPResponse(status: responseStatus,
+                                    headers: HTTPHeaders([
+                                        ("Content-Type", "application/hap+json")
+                                    ]),
+                                    body: json)
             } catch {
                 logger.error("Could not serialize object", error: error)
-                return .internalServerError
+                return HTTPResponse(status: .internalServerError)
             }
 
-        case "PUT":
-            var body = Data()
-            let bytesRead = try? request.readAllData(into: &body)
-            logger.debug("PUT data: \(String(bytes: body, encoding: .utf8))")
-            guard bytesRead != nil,
+        case .PUT:
+            guard
+                let body = request.body.data,
                 let decoded = try? JSONDecoder().decode(Protocol.CharacteristicContainer.self, from: body)
             else {
                     logger.warning("Could not decode JSON")
                     return .badRequest
             }
+            logger.debug("PUT data: \(String(bytes: body, encoding: .utf8))")
             var statuses = [Protocol.Characteristic]()
             for item in decoded.characteristics {
                 var status = Protocol.Characteristic(aid: item.aid, iid: item.iid)
@@ -120,7 +126,7 @@ func characteristics(device: Device) -> Application {
                         .services
                         .flatMap({ $0.characteristics.filter({ $0.iid == item.iid }) })
                         .first else {
-                            return .unprocessableEntity
+                            return HTTPResponse(status: .unprocessableEntity)
                 }
 
                 // At least one of "value" or "ev" will be present in the characteristic write request object
@@ -144,13 +150,13 @@ func characteristics(device: Device) -> Application {
                     do {
                         switch value {
                         case let .string(value):
-                            try characteristic.setValue(value, fromConnection: connection)
+                            try characteristic.setValue(value, fromChannel: channel)
                         case let .int(int):
-                            try characteristic.setValue(int, fromConnection: connection)
+                            try characteristic.setValue(int, fromChannel: channel)
                         case let .double(double):
-                            try characteristic.setValue(double, fromConnection: connection)
+                            try characteristic.setValue(double, fromChannel: channel)
                         case let .bool(bool):
-                            try characteristic.setValue(bool, fromConnection: connection)
+                            try characteristic.setValue(bool, fromChannel: channel)
                         }
                         status.status = .success
                     } catch {
@@ -160,7 +166,7 @@ func characteristics(device: Device) -> Application {
                     }
 
                     // notify listeners
-                    device.notifyListeners(of: characteristic, exceptListener: connection)
+                    device.fireCharacteristicChangeEvent(characteristic, source: channel)
                 }
 
                 // toggle events for this characteristic on this connection
@@ -171,10 +177,10 @@ func characteristics(device: Device) -> Application {
                         break
                     }
                     if events {
-                        device.add(characteristic: characteristic, listener: connection)
+                        device.addSubscriber(channel, forCharacteristic: characteristic)
                         logger.debug("Added listener for \(characteristic)")
                     } else {
-                        device.remove(characteristic: characteristic, listener: connection)
+                        device.removeSubscriber(channel, forCharacteristic: characteristic)
                         logger.debug("Removed listener for \(characteristic)")
                     }
                     status.status = .success
@@ -198,12 +204,14 @@ func characteristics(device: Device) -> Application {
             guard !hasErrors else {
                 do {
                     let json = try JSONEncoder().encode(Protocol.CharacteristicContainer(characteristics: statuses))
-                    return Response(status: statuses.count == 1 ? .badRequest : .multiStatus,
-                                    data: json,
-                                    mimeType: "application/hap+json")
+                    return HTTPResponse(status: statuses.count == 1 ? .badRequest : .multiStatus,
+                                        headers: HTTPHeaders([
+                                            ("Content-Type", "application/hap+json")
+                                        ]),
+                                        body: json)
                 } catch {
                     logger.error("Could not serialize object", error: error)
-                    return .internalServerError
+                    return HTTPResponse(status: .internalServerError)
                 }
             }
 
@@ -211,7 +219,7 @@ func characteristics(device: Device) -> Application {
              If no error occurs, the accessory must send an HTTP response with
              a 204 No Content status code and an empty body.
              */
-            return Response(status: .noContent)
+            return HTTPResponse(status: .noContent)
 
         default:
             return .badRequest
