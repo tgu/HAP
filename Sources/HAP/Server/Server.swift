@@ -88,22 +88,6 @@ public class Server: NSObject, NetServiceDelegate {
         device.server = self
         updateDiscoveryRecord()
 
-<<<<<<< HEAD
-    /// Publish the Accessory configuration on the Bonjour service
-    func updateDiscoveryRecord() {
-        let record = device.config.dictionary(key: { $0.key }, value: { $0.value.data(using: .utf8)! })
-        service.setTXTRecord(NetService.data(fromTXTRecord: record))
-    }
-
-    public func start() {
-        if #available(OSX 10.12, *) {
-            dispatchPrecondition(condition: .onQueue(.main))
-        }
-        // TODO: make sure can only be started if not started
-
-        continueRunning = true
-=======
->>>>>>> dd02694fe39c23fcb647ae653438be5777529c86
         service.publish(options: NetService.Options(rawValue: 0))
     }
 
@@ -114,17 +98,6 @@ public class Server: NSObject, NetServiceDelegate {
         } catch {
             throw ServerError.couldNotStop(error)
         }
-<<<<<<< HEAD
-        continueRunning = false
-
-        // Ideally we would call `.close()` on all open sockets. However
-        // BlueSocket doesn't like us doing that from another thread than
-        // the one that's currently listening. As a workaround, we'll
-        // force close the file descriptor instead.
-
-        Socket.forceClose(socketfd: listenSocket.socketfd)
-=======
->>>>>>> dd02694fe39c23fcb647ae653438be5777529c86
     }
 
     /// Publish the Accessory configuration on the Bonjour service

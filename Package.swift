@@ -10,13 +10,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/Bouke/CLibSodium.git", from: "1.0.0"),
-<<<<<<< HEAD
-        .package(url: "https://github.com/tgu/SRP.git", from: "3.0.1"),
-        .package(url: "https://github.com/tgu/HKDF.git", from: "3.0.1"),
-=======
         .package(url: "https://github.com/Bouke/SRP.git", from: "3.1.0"),
         .package(url: "https://github.com/Bouke/HKDF.git", from: "3.1.0"),
->>>>>>> dd02694fe39c23fcb647ae653438be5777529c86
         .package(url: "https://github.com/knly/Evergreen.git", .branch("swift4")),
         .package(url: "https://github.com/IBM-Swift/BlueCryptor.git", from: "1.0.21"),
         .package(url: "https://github.com/crossroadlabs/Regex.git", from: "1.1.0"),
